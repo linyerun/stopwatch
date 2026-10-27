@@ -10,7 +10,7 @@ struct MainWindow: View {
     var body: some View {
         ZStack {
             if page == .chanting {
-                BuddhaBackdrop()
+                BuddhaGround()
             } else {
                 Color(nsColor: .windowBackgroundColor)
             }
@@ -64,7 +64,8 @@ struct ChantingView: View {
         // One floating dock at the foot of the image: the statue stays whole above it,
         // and timer, counter, actions and totals share a single aligned surface.
         VStack(spacing: 12) {
-            Spacer(minLength: 0)
+            BuddhaFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Text(statusLine)
                 .font(.caption)

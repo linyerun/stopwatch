@@ -36,33 +36,30 @@ enum BuddhaImage {
     }
 }
 
-/// Full-bleed 阿弥陀佛 backdrop with a dimming gradient so the white readout stays legible.
-struct BuddhaBackdrop: View {
+/// Deep temple-wall ground behind the photograph plate.
+struct BuddhaGround: View {
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                if let image = BuddhaImage.load() {
-                    Image(decorative: image, scale: 1)
-                        .resizable()
-                        .scaledToFill()
-                        // Oversize, then lift the figure so the readout has the floor to
-                        // itself without exposing a gap at the bottom.
-                        .frame(width: geometry.size.width, height: geometry.size.height * 1.18)
-                        .offset(y: -geometry.size.height * 0.09)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
-                } else {
-                    LinearGradient(colors: [Color(red: 0.10, green: 0.07, blue: 0.05),
-                                            Color(red: 0.02, green: 0.02, blue: 0.03)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
-                LinearGradient(stops: [
-                    .init(color: Color.black.opacity(0.45), location: 0),
-                    .init(color: Color.black.opacity(0.10), location: 0.40),
-                    .init(color: Color.black.opacity(0.78), location: 1)
-                ], startPoint: .top, endPoint: .bottom)
-            }
-        }
+        LinearGradient(stops: [
+            .init(color: Color(red: 0.09, green: 0.07, blue: 0.05), location: 0),
+            .init(color: Color(red: 0.04, green: 0.03, blue: 0.025), location: 0.55),
+            .init(color: Color(red: 0.02, green: 0.015, blue: 0.012), location: 1)
+        ], startPoint: .top, endPoint: .bottom)
         .ignoresSafeArea()
+    }
+}
+
+/// The photograph whole: fitted edge to edge, never cropped, hung like a plate on the
+/// wall — hairline frame and shadow so the letterbox reads as intentional matting.
+struct BuddhaFit: View {
+    var body: some View {
+        if let image = BuddhaImage.load() {
+            Image(decorative: image, scale: 1)
+                .resizable()
+                .scaledToFit()
+                .overlay(Rectangle().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                .shadow(color: .black.opacity(0.55), radius: 28, y: 8)
+        } else {
+            Color.clear
+        }
     }
 }
