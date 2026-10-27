@@ -60,12 +60,6 @@ struct ActiveState: Codable, Equatable {
     }
 }
 
-struct Snapshot: Codable {
-    var version: Int = 1
-    var sessions: [Session]
-    var active: ActiveState?
-}
-
 /// Sessions shorter than this are treated as mis-taps and not recorded — unless
 /// the seat carries counted 佛号, which is never thrown away.
 let minRecordedSeconds = 10
@@ -73,42 +67,8 @@ let minRecordedSeconds = 10
 /// One mala cycle, shown as 圈 in the UI.
 let beadsPerCycle = 108
 
-final class Store {
-    let directory: URL
-    private var file: URL { directory.appendingPathComponent("sessions.json") }
-    private let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.dateEncodingStrategy = .iso8601
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return e
-    }()
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return d
-    }()
-
-    init(directory: URL) {
-        self.directory = directory
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-
-    var exists: Bool { FileManager.default.fileExists(atPath: file.path) }
-
-    func load() -> Snapshot? {
-        guard let data = try? Data(contentsOf: file) else { return nil }
-        return try? decoder.decode(Snapshot.self, from: data)
-    }
-
-    func save(_ snapshot: Snapshot) {
-        guard let data = try? encoder.encode(snapshot) else { return }
-        try? data.write(to: file, options: .atomic)
-    }
-
-    func deleteAll() {
-        try? FileManager.default.removeItem(at: file)
-    }
-
+/// Where records live; overridable with NIANFO_DATA_DIR for tests and demos.
+enum Store {
     static func applicationDirectory() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
@@ -154,14 +114,6 @@ enum Stats {
             .reduce(0) { $0 + $1.count }
     }
 
-    private static func inRange(_ sessions: [Session], from: Date, through: Date,
-                                calendar: Calendar) -> [Session] {
-        sessions.filter {
-            calendar.startOfDay(for: $0.start) >= calendar.startOfDay(for: from)
-                && calendar.startOfDay(for: $0.start) <= calendar.startOfDay(for: through)
-        }
-    }
-
     /// Consecutive days with at least one recorded session. A day with no practice
     /// yet does not break the streak as long as yesterday was practiced.
     static func streak(_ sessions: [Session], now: Date = .now,
@@ -183,6 +135,13 @@ enum Stats {
         return count
     }
 
+    private static func inRange(_ sessions: [Session], from: Date, through: Date,
+                                calendar: Calendar) -> [Session] {
+        sessions.filter {
+            calendar.startOfDay(for: $0.start) >= calendar.startOfDay(for: from)
+                && calendar.startOfDay(for: $0.start) <= calendar.startOfDay(for: through)
+        }
+    }
 }
 
 // MARK: - Model
@@ -192,17 +151,28 @@ final class TimerModel: ObservableObject {
 
     @Published private(set) var sessions: [Session] = []
     @Published private(set) var active: ActiveState?
+    /// Non-nil when a write failed, so the UI can warn instead of losing records quietly.
+    @Published private(set) var storageError: String?
     /// Bumped once a second while a seat is in progress; views read the clock live.
     @Published private var tick = Date()
 
-    private let store: Store
+    let database: Database
     private var ticker: AnyCancellable?
     /// Injectable clock so the seat arithmetic is testable without waiting in real time.
     var nowProvider: () -> Date = Date.init
 
     init(directory: URL) {
-        store = Store(directory: directory)
-        reload()
+        do {
+            database = try Database(path: directory.appendingPathComponent("stopwatch.sqlite3").path)
+        } catch {
+            fatalError("念佛计时无法打开数据库：\(error.localizedDescription)")
+        }
+        sessions = (try? database.allSessions()) ?? []
+        active = repair(try? database.activeSeat())
+        importLegacyJSONIfNeeded(directory: directory)
+        if active?.isRunning == true {
+            ensureTicking()
+        }
     }
 
     static func defaultDirectory() -> URL {
@@ -243,8 +213,6 @@ final class TimerModel: ObservableObject {
     var lifetimeCount: Int { totalCount + seatCount }
     var lifetimeCycles: Int { lifetimeCount / beadsPerCycle }
 
-    var hasSavedData: Bool { store.exists }
-
     var totalSeconds: Int { sessions.reduce(0) { $0 + $1.seconds } }
     var streakDays: Int { Stats.streak(sessions, now: nowProvider()) }
 
@@ -260,7 +228,7 @@ final class TimerModel: ObservableObject {
         guard active == nil else { return }
         let now = nowProvider()
         active = ActiveState(seatStart: now, segmentStart: now, bankedSeconds: 0, isRunning: true)
-        persist()
+        saveActive()
         ensureTicking()
     }
 
@@ -270,7 +238,7 @@ final class TimerModel: ObservableObject {
         updated.bankedSeconds += max(0, Int(nowProvider().timeIntervalSince(updated.segmentStart)))
         updated.isRunning = false
         self.active = updated
-        persist()
+        saveActive()
         stopTicking()
     }
 
@@ -280,7 +248,7 @@ final class TimerModel: ObservableObject {
         updated.segmentStart = nowProvider()
         updated.isRunning = true
         self.active = updated
-        persist()
+        saveActive()
         ensureTicking()
     }
 
@@ -291,7 +259,7 @@ final class TimerModel: ObservableObject {
         guard var updated = active else { return }
         updated.count += 1
         active = updated
-        persist()
+        saveActive()
     }
 
     /// Ends the current seat and writes it into the history. Returns the recorded
@@ -310,8 +278,9 @@ final class TimerModel: ObservableObject {
                                   count: active.count)
             sessions.append(session)
             recorded = session
+            commit { try self.database.insert(session) }
         }
-        persist()
+        saveActive()
         return recorded
     }
 
@@ -320,39 +289,36 @@ final class TimerModel: ObservableObject {
         guard active != nil else { return }
         active = nil
         stopTicking()
-        persist()
+        saveActive()
     }
 
     func delete(_ session: Session) {
         sessions.removeAll { $0.id == session.id }
-        persist()
+        commit { try self.database.deleteSession(id: session.id) }
     }
 
     func deleteDay(_ day: Date) {
         let calendar = Calendar.current
-        sessions.removeAll { calendar.startOfDay(for: $0.start) == calendar.startOfDay(for: day) }
-        persist()
+        let start = calendar.startOfDay(for: day)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        sessions.removeAll { $0.start >= start && $0.start < end }
+        commit { try self.database.deleteSessionsStarted(onOrAfter: start, before: end) }
     }
 
     func clearAll() {
         sessions = []
         active = nil
         stopTicking()
-        store.deleteAll()
-    }
-
-    func reload() {
-        guard let snapshot = store.load() else { return }
-        sessions = snapshot.sessions
-        active = repair(snapshot.active)
-        if active?.isRunning == true {
-            ensureTicking()
+        commit {
+            try self.database.replaceSessions([])
+            try self.database.setActive(nil)
         }
     }
 
+    /// Replaces the stored history — used by the demo seed and by tests.
     func seed(_ sessions: [Session]) {
         self.sessions = sessions
-        persist()
+        commit { try self.database.replaceSessions(sessions) }
     }
 
     // MARK: ticking
@@ -374,6 +340,23 @@ final class TimerModel: ObservableObject {
         ticker = nil
     }
 
+    // MARK: storage
+
+    private func saveActive() {
+        commit { try self.database.setActive(self.active) }
+    }
+
+    private func commit(_ write: () throws -> Void) {
+        do {
+            try write()
+            storageError = nil
+        } catch {
+            storageError = error.localizedDescription
+            let line = "念佛计时写入失败：\(error.localizedDescription)\n"
+            FileHandle.standardError.write(line.data(using: .utf8)!)
+        }
+    }
+
     /// An in-progress seat is stored as wall-clock dates, so a clock jump or a
     /// machine sleep can leave the segment starting in the future.
     private func repair(_ state: ActiveState?) -> ActiveState? {
@@ -382,9 +365,42 @@ final class TimerModel: ObservableObject {
         return state
     }
 
-    private func persist() {
-        store.save(Snapshot(version: 1, sessions: sessions, active: active))
+    /// Builds before SQLite kept everything in sessions.json; move those rows over
+    /// once, then remove the file so it is never imported twice.
+    private func importLegacyJSONIfNeeded(directory: URL) {
+        let legacy = directory.appendingPathComponent("sessions.json")
+        guard let data = try? Data(contentsOf: legacy),
+              let snapshot = try? JSONDecoder.legacy.decode(LegacySnapshot.self, from: data)
+        else { return }
+        let fresh = snapshot.sessions.filter { incoming in
+            !sessions.contains { $0.id == incoming.id }
+        }
+        if !fresh.isEmpty {
+            sessions.append(contentsOf: fresh)
+            commit { try self.database.replaceSessions(self.sessions) }
+        }
+        if active == nil, let legacyActive = snapshot.active {
+            active = repair(legacyActive)
+            saveActive()
+            if active?.isRunning == true { ensureTicking() }
+        }
+        try? FileManager.default.removeItem(at: legacy)
     }
+}
+
+/// Shape of the pre-SQLite file, kept only so existing records survive the upgrade.
+private struct LegacySnapshot: Codable {
+    var version: Int
+    var sessions: [Session]
+    var active: ActiveState?
+}
+
+private extension JSONDecoder {
+    static let legacy: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
 }
 
 // MARK: - Formatting
@@ -408,6 +424,13 @@ enum TimeFormat {
         f.locale = Locale(identifier: "zh_CN")
         f.calendar = Calendar(identifier: .gregorian)
         f.dateFormat = "M月d日 EEE"
+        return f
+    }()
+
+    static let dateLabel: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "yyyy 年 M 月 d 日"
         return f
     }()
 

@@ -174,6 +174,8 @@ struct MenuBarPanel: View {
 struct TapButton: View {
     @ObservedObject private var model = TimerModel.shared
     let size: CGFloat
+    /// On the 念佛 page the button sits on the Buddha image, so it drops the dark label.
+    var onImage: Bool = false
 
     var body: some View {
         Button {
@@ -181,15 +183,19 @@ struct TapButton: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(Color.orange.opacity(model.seatCount > 0 ? 0.22 : 0.10))
-                    .overlay(Circle().stroke(Color.orange.opacity(0.75), lineWidth: 2))
+                    .fill(onImage
+                          ? Color.white.opacity(model.seatCount > 0 ? 0.26 : 0.12)
+                          : Color.orange.opacity(model.seatCount > 0 ? 0.22 : 0.10))
+                    .overlay(Circle().stroke(onImage ? Color.orange : Color.orange.opacity(0.75),
+                                             lineWidth: onImage ? 3 : 2))
                 VStack(spacing: 2) {
                     Text("\(model.seatCount % beadsPerCycle)")
                         .font(.system(size: size * 0.32, weight: .medium, design: .rounded))
                         .monospacedDigit()
+                        .foregroundStyle(onImage ? Color.white : Color.primary)
                     Text(model.seatCycles > 0 ? "第 \(model.seatCycles) 圈" : "一声一念")
                         .font(.system(size: size * 0.11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(onImage ? Color.white.opacity(0.75) : Color.secondary)
                 }
             }
             .frame(width: size, height: size)

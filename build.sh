@@ -11,15 +11,19 @@ cd "$(dirname "$0")"
 APP_DIR="build/念佛计时.app"
 EXE="Stopwatch"
 TARGET="arm64-apple-macosx13.0"
-OPTS=(-O -target "$TARGET" -framework SwiftUI -framework AppKit)
+OPTS=(-O -target "$TARGET" -framework SwiftUI -framework AppKit -lsqlite3)
 
 # Everything except the @main entry point, so the test and snapshot tools can own main.
 UI_SOURCES=(
   Sources/Stopwatch/TimerModel.swift
+  Sources/Stopwatch/Database.swift
   Sources/Stopwatch/SampleData.swift
   Sources/Stopwatch/Exporter.swift
+  Sources/Stopwatch/OffscreenRender.swift
+  Sources/Stopwatch/BuddhaBackdrop.swift
   Sources/Stopwatch/MenuBarUI.swift
   Sources/Stopwatch/MainWindow.swift
+  Sources/Stopwatch/RecordsView.swift
   Sources/Stopwatch/HistoryWindow.swift
 )
 
@@ -32,13 +36,12 @@ swiftc "${OPTS[@]}" -parse-as-library "${UI_SOURCES[@]}" Sources/Stopwatch/AppMa
 
 echo "==> bundling"
 cp Info.plist "$APP_DIR/Contents/Info.plist"
+cp Assets/amitabha.png "$APP_DIR/Contents/Resources/"
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
 codesign --force --sign - "$APP_DIR" >/dev/null
 
 echo "==> compiling self-test"
-swiftc "${OPTS[@]}" \
-  Sources/Stopwatch/TimerModel.swift \
-  Sources/Stopwatch/Exporter.swift \
+swiftc "${OPTS[@]}" "${UI_SOURCES[@]}" \
   Sources/Stopwatch/SelfTest.swift \
   Sources/StopwatchTests/main.swift \
   -o build/stopwatch-selftest

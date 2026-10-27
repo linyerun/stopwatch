@@ -7,12 +7,16 @@ enum SelfTest {
     static func run(dataDir: URL) {
         testAggregation()
         testStreak()
-        testPersistence(dataDir: dataDir)
+        do {
+            try testPersistence(dataDir: dataDir)
+        } catch {
+            expect(false, "database test threw: \(error.localizedDescription)")
+        }
         testSeatArithmetic(dataDir: dataDir)
         testCrashRecovery(dataDir: dataDir)
         testCounting(dataDir: dataDir)
         testLegacyRecords(dataDir: dataDir)
-        testExport()
+        testExportImage()
 
         print("\(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
@@ -70,25 +74,32 @@ enum SelfTest {
                "an old session should not streak")
     }
 
-    private static func testPersistence(dataDir: URL) {
+    private static func testPersistence(dataDir: URL) throws {
         let dir = dataDir.appendingPathComponent("persistence", isDirectory: true)
-        let store = Store(directory: dir)
-        expect(store.load() == nil, "a fresh directory should have no snapshot")
+        let database = try Database(path: dir.appendingPathComponent("stopwatch.sqlite3").path)
+        expect(try database.allSessions().isEmpty, "a fresh database should be empty")
+
         let start = date("2026-10-05T07:30:00")
-        let snapshot = Snapshot(version: 1,
-                               sessions: [Session(start: start, end: start.addingTimeInterval(1200),
-                                                  seconds: 1200)],
-                               active: ActiveState(seatStart: start, segmentStart: start,
-                                                   bankedSeconds: 45, isRunning: true))
-        store.save(snapshot)
-        let loaded = store.load()
-        expect(loaded?.sessions.count == 1, "session should survive a save/load roundtrip")
-        expect(loaded?.sessions.first?.seconds == 1200, "duration should roundtrip exactly")
-        expect(loaded?.sessions.first?.start == start, "start date should roundtrip exactly")
-        expect(loaded?.active?.bankedSeconds == 45, "in-progress seat should roundtrip")
-        expect(loaded?.active?.isRunning == true, "running flag should roundtrip")
-        store.deleteAll()
-        expect(store.load() == nil, "deleteAll should remove the snapshot")
+        let session = Session(start: start, end: start.addingTimeInterval(1200), seconds: 1200,
+                              count: 160)
+        try database.insert(session)
+        try database.setActive(ActiveState(seatStart: start, segmentStart: start,
+                                           bankedSeconds: 45, isRunning: true, count: 7))
+
+        let reopened = try Database(path: dir.appendingPathComponent("stopwatch.sqlite3").path)
+        let loaded = try reopened.allSessions()
+        expect(loaded.count == 1, "rows should survive reopening the database")
+        expect(loaded.first?.id == session.id, "the session id should roundtrip")
+        expect(loaded.first?.seconds == 1200, "duration should roundtrip exactly")
+        expect(loaded.first?.count == 160, "佛号 count should roundtrip exactly")
+        expect(loaded.first?.start == start, "start date should roundtrip to the second")
+        expect(try reopened.activeSeat()?.bankedSeconds == 45, "in-progress seat should roundtrip")
+        expect(try reopened.activeSeat()?.count == 7, "in-progress taps should roundtrip")
+
+        try reopened.deleteSession(id: session.id)
+        expect(try reopened.allSessions().isEmpty, "delete should remove the row")
+        try reopened.setActive(nil)
+        expect(try reopened.activeSeat() == nil, "clearing the active seat should delete its row")
     }
 
     private static func testSeatArithmetic(dataDir: URL) {
@@ -154,17 +165,21 @@ enum SelfTest {
         expect(recorded?.seconds == 180, "the recovered seat should record 180s")
     }
 
-    private static func testExport() {
+    private static func testExportImage() {
         let start = date("2026-10-27T06:00:00")
-        let session = Session(start: start, end: start.addingTimeInterval(90), seconds: 90)
-        let csv = Exporter.csv([session])
-        expect(csv.hasPrefix("开始时间,结束时间,时长(秒),时长(分),佛号数,座次"), "csv needs a header")
-        expect(csv.contains("90,1.50,0,1"), "csv should carry seconds, minutes, count and index, got \(csv)")
-        let counted = Exporter.csv([Session(start: start, end: start.addingTimeInterval(90),
-                                            seconds: 90, count: 27)])
-        expect(counted.contains("90,1.50,27,1"), "csv should carry the 佛号 count")
-        let json = (try? Exporter.json([session])) ?? "[]"
-        expect(json.contains("\"seconds\" : 90"), "json should round-trip the duration")
+        let sessions = [Session(start: start, end: start.addingTimeInterval(900), seconds: 900,
+                                count: 120)]
+        let card = ExportCardView(sessions: sessions).environment(\.colorScheme, .light)
+        guard let image = OffscreenRender.image(of: card, width: 760),
+              let png = OffscreenRender.png(image) else {
+            expect(false, "the export card should render offscreen")
+            return
+        }
+        expect(png.count > 20_000, "the exported picture should carry real pixels, got \(png.count) bytes")
+        expect(Array(png.prefix(4)) == [0x89, 0x50, 0x4E, 0x47], "export should be a PNG")
+        expect(image.size.width == 760, "export width should match the request")
+        expect(Exporter.suggestedFileName(date: start).hasPrefix("念佛统计-20261027"),
+               "the suggested filename should carry the date")
     }
 
     private static func testCounting(dataDir: URL) {
@@ -190,6 +205,7 @@ enum SelfTest {
         expect(model.seatCount % beadsPerCycle == 0, "the 圈 counter should reset after 108")
 
         let reloaded = TimerModel(directory: dir)
+        reloaded.nowProvider = { clock }
         expect(reloaded.seatCount == beadsPerCycle, "taps should persist across a relaunch")
         expect(reloaded.totalCount == 3, "only finished seats count toward history")
         expect(reloaded.todayCount == beadsPerCycle + 3, "today should add taps to history")
@@ -197,15 +213,23 @@ enum SelfTest {
 
     private static func testLegacyRecords(dataDir: URL) {
         let dir = dataDir.appendingPathComponent("legacy", isDirectory: true)
-        _ = Store(directory: dir)
         let raw = """
         {"version":1,"sessions":[{"id":"11111111-1111-1111-1111-111111111111","start":"2026-10-20T06:00:00Z","end":"2026-10-20T06:20:00Z","seconds":1200}],"active":null}
         """
-        try? raw.data(using: .utf8)?.write(to: dir.appendingPathComponent("sessions.json"))
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let legacy = dir.appendingPathComponent("sessions.json")
+        try? raw.data(using: .utf8)?.write(to: legacy)
+
         let model = TimerModel(directory: dir)
-        expect(model.sessions.count == 1, "records written before counting should still load")
+        expect(model.sessions.count == 1, "sessions.json should be imported into SQLite")
+        expect(model.sessions.first?.seconds == 1200, "imported duration should match")
         expect(model.sessions.first?.count == 0, "a missing count field should read as zero")
-        expect(model.totalCount == 0, "legacy records add no 佛号")
+        expect(!FileManager.default.fileExists(atPath: legacy.path),
+               "the imported JSON file should be retired")
+        expect((try? model.database.allSessions().count) == 1, "the import should be persisted")
+
+        let reopened = TimerModel(directory: dir)
+        expect(reopened.sessions.count == 1, "the import should not duplicate on next launch")
     }
 
     /// Parses a wall-clock literal in the given calendar's timezone so the tests do
