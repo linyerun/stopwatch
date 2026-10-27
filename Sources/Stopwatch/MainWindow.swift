@@ -61,52 +61,70 @@ struct ChantingView: View {
     @State private var confirmingDiscard = false
 
     var body: some View {
-        GeometryReader { geometry in
-            // The readout lives in the lower half so the Buddha's face and the lotus in
-            // both hands stay whole: timer on the left, counting on the right.
-            HStack(alignment: .center, spacing: 40) {
-                VStack(spacing: 6) {
-                    Text(TimeFormat.clock(model.elapsedSeconds))
-                        .font(.system(size: 62, weight: .ultraLight, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
+        // One floating dock at the foot of the image: the statue stays whole above it,
+        // and timer, counter, actions and totals share a single aligned surface.
+        VStack(spacing: 12) {
+            Spacer(minLength: 0)
 
-                    Text("本座")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(statusLine)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.68))
+                .shadow(color: .black.opacity(0.6), radius: 4, y: 1)
 
-                VStack(spacing: 10) {
-                    Text(statusLine)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.72))
-
-                    TapButton(size: min(150, geometry.size.height * 0.2), onImage: true)
-                        .padding(.vertical, 4)
-
-                    controls
-
-                    HStack(spacing: 24) {
-                        FootStat(label: "今日", value: TimeFormat.compact(model.todaySeconds))
-                        FootStat(label: "今日佛号", value: "\(model.todayCount) 声")
-                        FootStat(label: "连续", value: "\(model.streakDays) 天")
-                        FootStat(label: "累计", value: TimeFormat.compact(model.totalSeconds))
-                    }
-                    .padding(.top, 6)
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.top, geometry.size.height * 0.30)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            dock
         }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 20)
         .confirmationDialog("放弃本座？已念的 \(model.seatCount) 声不会保存。",
                             isPresented: $confirmingDiscard, titleVisibility: .visible) {
             Button("放弃", role: .destructive) { model.discardActive() }
             Button("继续念", role: .cancel) {}
         }
+    }
+
+    private var dock: some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("本座")
+                    .font(.caption2)
+                    .tracking(3)
+                    .foregroundStyle(.white.opacity(0.55))
+                Text(TimeFormat.clock(model.elapsedSeconds))
+                    .font(.system(size: 42, weight: .ultraLight, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+            }
+
+            dockDivider
+
+            TapButton(size: 104, onImage: true)
+
+            VStack(alignment: .trailing, spacing: 10) {
+                controls
+
+                HStack(spacing: 20) {
+                    FootStat(label: "今日", value: TimeFormat.compact(model.todaySeconds))
+                    FootStat(label: "今日佛号", value: "\(model.todayCount) 声")
+                    FootStat(label: "连续", value: "\(model.streakDays) 天")
+                    FootStat(label: "累计", value: TimeFormat.compact(model.totalSeconds))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(LinearGradient(colors: [Color.black.opacity(0.52), Color.black.opacity(0.34)],
+                                   startPoint: .bottom, endPoint: .top),
+                    in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
+    }
+
+    private var dockDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.12))
+            .frame(width: 1, height: 56)
     }
 
     private var statusLine: String {

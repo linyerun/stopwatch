@@ -184,7 +184,7 @@ struct TapButton: View {
             ZStack {
                 Circle()
                     .fill(onImage
-                          ? Color.white.opacity(model.seatCount > 0 ? 0.26 : 0.12)
+                          ? Color.white.opacity(model.seatCount > 0 ? 0.16 : 0.08)
                           : Color.orange.opacity(model.seatCount > 0 ? 0.22 : 0.10))
                     .overlay(Circle().stroke(onImage ? Color.orange : Color.orange.opacity(0.75),
                                              lineWidth: onImage ? 3 : 2))
