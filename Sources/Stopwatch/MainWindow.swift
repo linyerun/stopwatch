@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-struct HistoryView: View {
+struct MainWindow: View {
     @ObservedObject private var model = TimerModel.shared
     @State private var confirmingClear = false
     @State private var exportedMessage: String?
@@ -10,7 +10,7 @@ struct HistoryView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("念佛记录")
+                Text("念佛计时")
                     .font(.title2.weight(.semibold))
                 Spacer()
                 if let exportedMessage {
@@ -24,6 +24,12 @@ struct HistoryView: View {
                 Button("清空", role: .destructive) { confirmingClear = true }
             }
             .padding(16)
+
+            Divider()
+
+            SeatCard()
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
 
             Divider()
 
@@ -64,8 +70,8 @@ struct HistoryView: View {
             SummaryCard(title: "本周", value: TimeFormat.compact(weekSeconds))
             SummaryCard(title: "本月", value: TimeFormat.compact(monthSeconds))
             SummaryCard(title: "累计", value: TimeFormat.compact(model.totalSeconds))
-            SummaryCard(title: "连续天数", value: "\(model.streakDays) 天")
-            SummaryCard(title: "总座数", value: "\(model.sessions.count) 座")
+            SummaryCard(title: "连续天数", value: "\(model.streakDays) 天 · \(model.sessions.count) 座")
+            SummaryCard(title: "佛号", value: "\(model.lifetimeCount) 声（\(model.lifetimeCycles) 圈）")
         }
     }
 
@@ -114,6 +120,84 @@ struct HistoryView: View {
     }
 }
 
+/// The always-visible top of the window: the stopwatch and the 一念 counter.
+struct SeatCard: View {
+    @ObservedObject private var model = TimerModel.shared
+    @State private var confirmingDiscard = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 32) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(TimeFormat.clock(model.elapsedSeconds))
+                    .font(.system(size: 54, weight: .light, design: .rounded))
+                    .monospacedDigit()
+                Text(statusLine)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                controls
+                    .padding(.top, 6)
+            }
+
+            Spacer(minLength: 16)
+
+            VStack(spacing: 10) {
+                TapButton(size: 168)
+                Text("本座 \(model.seatCount) 声 · 今日 \(model.todayCount) 声")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .padding(20)
+        .cardSurface()
+        .confirmationDialog("放弃本座？已念的 \(model.seatCount) 声不会保存。",
+                            isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button("放弃", role: .destructive) { model.discardActive() }
+            Button("继续念", role: .cancel) {}
+        }
+    }
+
+    private var statusLine: String {
+        if model.isRunning { return "念佛中 · 回车或点圆钮各计一声" }
+        if model.isPaused { return "已暂停" }
+        return "未开始 · 点圆钮即开始本座并计第一声"
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        if model.hasActiveSession {
+            HStack(spacing: 8) {
+                Button(model.isRunning ? "暂停" : "继续") {
+                    model.isRunning ? model.pause() : model.resume()
+                }
+                Button("结束本座") { model.finish() }
+                    .buttonStyle(.borderedProminent)
+                Button("放弃") {
+                    if model.seatCount > 0 {
+                        confirmingDiscard = true
+                    } else {
+                        model.discardActive()
+                    }
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            }
+            .controlSize(.large)
+        } else {
+            Button("开始念佛") { model.start() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
+    }
+}
+
+extension View {
+    func cardSurface() -> some View {
+        background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
+    }
+}
+
 struct SummaryCard: View {
     let title: String
     let value: String
@@ -129,8 +213,7 @@ struct SummaryCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
+        .cardSurface()
     }
 }
 
@@ -147,6 +230,12 @@ struct DayRow: View {
                     Text(TimeFormat.dayLabel.string(from: stat.day))
                         .frame(width: 120, alignment: .leading)
                     Spacer()
+                    if stat.count > 0 {
+                        Text("\(stat.count) 声")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
                     Text("\(stat.sessions.count) 座")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -170,6 +259,11 @@ struct DayRow: View {
                         Text("\(TimeFormat.timeLabel.string(from: session.start)) – \(TimeFormat.timeLabel.string(from: session.end))")
                             .foregroundStyle(.secondary)
                         Spacer()
+                        if session.count > 0 {
+                            Text("\(session.count) 声")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
                         Text(TimeFormat.clock(session.seconds))
                             .monospacedDigit()
                         Button {
@@ -186,8 +280,7 @@ struct DayRow: View {
                 }
             }
         }
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
+        .cardSurface()
         .contextMenu {
             Button("删除本日全部", role: .destructive) {
                 TimerModel.shared.deleteDay(stat.day)
@@ -258,8 +351,7 @@ struct HeatmapCard: View {
             }
         }
         .padding(14)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08)))
+        .cardSurface()
     }
 
     private var mondayCalendar: Calendar {

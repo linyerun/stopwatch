@@ -8,10 +8,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["NIANFO_DEMO"] == "1", model.sessions.isEmpty {
             model.seed(SampleData.sessions())
         }
-        // Nothing to point at the app on first run, so show the records window.
-        if !model.hasSavedData || ProcessInfo.processInfo.environment["NIANFO_OPEN_WINDOW"] == "1" {
-            HistoryWindow.shared.show()
-        }
+        // The menu bar text is easy to miss on a crowded (or notched) menu bar, so the
+        // window with the timer always comes up on launch.
+        HistoryWindow.shared.show()
+    }
+
+    /// Relaunching from Finder or Launchpad should surface the timer again.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        HistoryWindow.shared.show()
+        return true
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
@@ -22,10 +27,10 @@ struct MenuBarLabel: View {
 
     var body: some View {
         if model.hasActiveSession {
-            Text("念佛 \(TimeFormat.clock(model.elapsedSeconds))")
+            Text("念佛 \(TimeFormat.clock(model.elapsedSeconds)) · \(model.seatCount) 声")
                 .monospacedDigit()
         } else {
-            Text("佛 \(TimeFormat.clock(model.todaySeconds))")
+            Text("佛 \(TimeFormat.clock(model.todaySeconds)) · \(model.todayCount) 声")
                 .monospacedDigit()
         }
     }
@@ -33,14 +38,14 @@ struct MenuBarLabel: View {
 
 struct MenuBarPanel: View {
     @ObservedObject private var model = TimerModel.shared
-    private var elapsed: Int { model.elapsedSeconds }
+    @State private var confirmingDiscard = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
             VStack(spacing: 2) {
-                Text(TimeFormat.clock(elapsed))
+                Text(TimeFormat.clock(model.elapsedSeconds))
                     .font(.system(size: 44, weight: .light, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(model.hasActiveSession ? Color.primary : Color.secondary)
@@ -49,7 +54,13 @@ struct MenuBarPanel: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
+
+            HStack {
+                Spacer()
+                TapButton(size: 96)
+                Spacer()
+            }
 
             controls
 
@@ -60,7 +71,7 @@ struct MenuBarPanel: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 if model.recentSessions.isEmpty {
-                    Text("还没有记录，按下开始即可。")
+                    Text("还没有记录，点一下中间的圆即可开始。")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 } else {
@@ -70,6 +81,11 @@ struct MenuBarPanel: View {
                             Text(TimeFormat.timeLabel.string(from: session.start))
                                 .foregroundStyle(.secondary)
                             Spacer()
+                            if session.count > 0 {
+                                Text("\(session.count) 声")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
                             Text(TimeFormat.compact(session.seconds))
                                 .monospacedDigit()
                         }
@@ -81,7 +97,7 @@ struct MenuBarPanel: View {
             Divider()
 
             HStack {
-                Button("记录窗口") { HistoryWindow.shared.show() }
+                Button("计时窗口") { HistoryWindow.shared.show() }
                 Spacer()
                 Button("退出") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
@@ -91,12 +107,17 @@ struct MenuBarPanel: View {
         }
         .padding(14)
         .frame(width: 300)
+        .confirmationDialog("放弃本座？已念的 \(model.seatCount) 声不会保存。",
+                            isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button("放弃", role: .destructive) { model.discardActive() }
+            Button("继续念", role: .cancel) {}
+        }
     }
 
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("今日 \(TimeFormat.compact(model.todaySeconds))")
+                Text("今日 \(TimeFormat.compact(model.todaySeconds)) · \(model.todayCount) 声")
                     .font(.subheadline.weight(.medium))
                 Text("连续 \(model.streakDays) 天 · \(model.sessions.count) 座")
                     .font(.caption)
@@ -129,9 +150,15 @@ struct MenuBarPanel: View {
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity)
 
-                Button("放弃") { model.discardActive() }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
+                Button("放弃") {
+                    if model.seatCount > 0 {
+                        confirmingDiscard = true
+                    } else {
+                        model.discardActive()
+                    }
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
             }
             .controlSize(.large)
         } else {
@@ -139,7 +166,37 @@ struct MenuBarPanel: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
-                .keyboardShortcut("s", modifiers: [.command, .shift])
         }
+    }
+}
+
+/// The 一念 counter: one tap is one 南无阿弥陀佛. Tapping while idle also starts the seat.
+struct TapButton: View {
+    @ObservedObject private var model = TimerModel.shared
+    let size: CGFloat
+
+    var body: some View {
+        Button {
+            model.tap()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(Color.orange.opacity(model.seatCount > 0 ? 0.22 : 0.10))
+                    .overlay(Circle().stroke(Color.orange.opacity(0.75), lineWidth: 2))
+                VStack(spacing: 2) {
+                    Text("\(model.seatCount % beadsPerCycle)")
+                        .font(.system(size: size * 0.32, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                    Text(model.seatCycles > 0 ? "第 \(model.seatCycles) 圈" : "一声一念")
+                        .font(.system(size: size * 0.11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: size, height: size)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("点一下＝念一声南无阿弥陀佛（\(beadsPerCycle) 声为一圈）")
+        .keyboardShortcut(.defaultAction)
     }
 }

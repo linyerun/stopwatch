@@ -44,10 +44,11 @@ func render<V: View>(_ view: V, width: CGFloat, to name: String) {
     }
 }
 
-render(HistoryView(), width: 880, to: "history.png")
-
-// Show the panel mid-seat so the running state is visible in the screenshot.
+// Show both surfaces mid-seat, with taps already logged, so the running state and the
+// 一念 counter are visible in the screenshots.
 model.start()
+for _ in 0..<37 { model.tap() }
 Thread.sleep(forTimeInterval: 2)
+render(MainWindow(), width: 880, to: "window.png")
 render(MenuBarPanel(), width: 300, to: "panel.png")
-render(MenuBarLabel(), width: 240, to: "label.png")
+render(MenuBarLabel(), width: 280, to: "label.png")

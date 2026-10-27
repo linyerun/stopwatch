@@ -2,8 +2,9 @@
 # Builds 念佛计时.app with the Swift toolchain from Command Line Tools — no Xcode
 # project needed. Runs the self-test against a throwaway data directory.
 #
-#   ./build.sh          build the app and run the self-test
+#   ./build.sh          build the app, run the self-test, then launch it
 #   ./build.sh shots    additionally render UI snapshots into build/shots
+#   ./build.sh install  copy the app into /Applications (launch from Launchpad)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -18,7 +19,7 @@ UI_SOURCES=(
   Sources/Stopwatch/SampleData.swift
   Sources/Stopwatch/Exporter.swift
   Sources/Stopwatch/MenuBarUI.swift
-  Sources/Stopwatch/HistoryView.swift
+  Sources/Stopwatch/MainWindow.swift
   Sources/Stopwatch/HistoryWindow.swift
 )
 
@@ -54,6 +55,16 @@ if [[ "${1:-}" == "shots" ]]; then
   NIANFO_DATA_DIR="$PWD/build/shots-data" ./build/stopwatch-shots "$PWD/build/shots"
 fi
 
+if [[ "${1:-}" == "install" ]]; then
+  echo "==> installing to /Applications"
+  rm -rf "/Applications/念佛计时.app"
+  cp -R "$APP_DIR" /Applications/
+  APP_DIR="/Applications/念佛计时.app"
+fi
+
 echo
 echo "built: $APP_DIR"
-echo "run:   open '$APP_DIR'   (timer appears in the menu bar)"
+if [[ "${NO_RUN:-}" != "1" ]]; then
+  open "$APP_DIR"
+  echo "已启动：菜单栏会显示「佛 …」，同时弹出计时窗口。"
+fi

@@ -5,10 +5,10 @@ enum Exporter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        var lines = ["开始时间,结束时间,时长(秒),时长(分),座次"]
+        var lines = ["开始时间,结束时间,时长(秒),时长(分),佛号数,座次"]
         let sorted = sessions.sorted { $0.start < $1.start }
         for (index, s) in sorted.enumerated() {
-            lines.append("\(formatter.string(from: s.start)),\(formatter.string(from: s.end)),\(s.seconds),\(String(format: "%.2f", Double(s.seconds) / 60)),\(index + 1)")
+            lines.append("\(formatter.string(from: s.start)),\(formatter.string(from: s.end)),\(s.seconds),\(String(format: "%.2f", Double(s.seconds) / 60)),\(s.count),\(index + 1)")
         }
         return lines.joined(separator: "\n") + "\n"
     }

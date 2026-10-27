@@ -10,6 +10,8 @@ enum SelfTest {
         testPersistence(dataDir: dataDir)
         testSeatArithmetic(dataDir: dataDir)
         testCrashRecovery(dataDir: dataDir)
+        testCounting(dataDir: dataDir)
+        testLegacyRecords(dataDir: dataDir)
         testExport()
 
         print("\(checks) checks, \(failures.count) failures")
@@ -156,10 +158,54 @@ enum SelfTest {
         let start = date("2026-10-27T06:00:00")
         let session = Session(start: start, end: start.addingTimeInterval(90), seconds: 90)
         let csv = Exporter.csv([session])
-        expect(csv.hasPrefix("开始时间,结束时间,时长(秒),时长(分),座次"), "csv needs a header")
-        expect(csv.contains("90,1.50,1"), "csv should carry seconds, minutes and seat index, got \(csv)")
+        expect(csv.hasPrefix("开始时间,结束时间,时长(秒),时长(分),佛号数,座次"), "csv needs a header")
+        expect(csv.contains("90,1.50,0,1"), "csv should carry seconds, minutes, count and index, got \(csv)")
+        let counted = Exporter.csv([Session(start: start, end: start.addingTimeInterval(90),
+                                            seconds: 90, count: 27)])
+        expect(counted.contains("90,1.50,27,1"), "csv should carry the 佛号 count")
         let json = (try? Exporter.json([session])) ?? "[]"
         expect(json.contains("\"seconds\" : 90"), "json should round-trip the duration")
+    }
+
+    private static func testCounting(dataDir: URL) {
+        let dir = dataDir.appendingPathComponent("counting", isDirectory: true)
+        let model = TimerModel(directory: dir)
+        var clock = date("2026-10-27T08:00:00")
+        model.nowProvider = { clock }
+
+        for _ in 0..<3 { model.tap() }
+        expect(model.hasActiveSession, "tapping while idle should open a seat")
+        expect(model.seatCount == 3, "three taps should be three 佛号")
+        expect(model.todayCount == 3, "today should include the in-progress taps")
+
+        clock = clock.addingTimeInterval(5)
+        let kept = model.finish()
+        expect(kept?.count == 3, "the seat should carry its count")
+        expect(kept?.seconds == 5, "a counted seat keeps its real duration")
+        expect(model.sessions.count == 1, "counted taps must survive the mis-tap rule")
+
+        for _ in 0..<beadsPerCycle { model.tap() }
+        expect(model.seatCount == beadsPerCycle, "a full mala should count \(beadsPerCycle) 声")
+        expect(model.seatCycles == 1, "a full mala is one 圈")
+        expect(model.seatCount % beadsPerCycle == 0, "the 圈 counter should reset after 108")
+
+        let reloaded = TimerModel(directory: dir)
+        expect(reloaded.seatCount == beadsPerCycle, "taps should persist across a relaunch")
+        expect(reloaded.totalCount == 3, "only finished seats count toward history")
+        expect(reloaded.todayCount == beadsPerCycle + 3, "today should add taps to history")
+    }
+
+    private static func testLegacyRecords(dataDir: URL) {
+        let dir = dataDir.appendingPathComponent("legacy", isDirectory: true)
+        _ = Store(directory: dir)
+        let raw = """
+        {"version":1,"sessions":[{"id":"11111111-1111-1111-1111-111111111111","start":"2026-10-20T06:00:00Z","end":"2026-10-20T06:20:00Z","seconds":1200}],"active":null}
+        """
+        try? raw.data(using: .utf8)?.write(to: dir.appendingPathComponent("sessions.json"))
+        let model = TimerModel(directory: dir)
+        expect(model.sessions.count == 1, "records written before counting should still load")
+        expect(model.sessions.first?.count == 0, "a missing count field should read as zero")
+        expect(model.totalCount == 0, "legacy records add no 佛号")
     }
 
     /// Parses a wall-clock literal in the given calendar's timezone so the tests do

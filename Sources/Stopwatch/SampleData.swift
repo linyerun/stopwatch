@@ -15,7 +15,8 @@ enum SampleData {
                 guard let start = calendar.date(bySettingHour: 6 + index * 7, minute: index * 13,
                                                 second: 0, of: day) else { continue }
                 let end = start.addingTimeInterval(TimeInterval(minute * 60))
-                result.append(Session(start: start, end: end, seconds: minute * 60))
+                result.append(Session(start: start, end: end, seconds: minute * 60,
+                                      count: minute * 8))
             }
         }
         return result

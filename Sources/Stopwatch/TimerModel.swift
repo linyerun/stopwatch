@@ -6,12 +6,26 @@ struct Session: Identifiable, Codable, Equatable {
     var start: Date
     var end: Date
     var seconds: Int
+    /// 佛号声数, 0 when the seat was timed without tapping.
+    var count: Int
 
-    init(id: UUID = UUID(), start: Date, end: Date, seconds: Int) {
+    init(id: UUID = UUID(), start: Date, end: Date, seconds: Int, count: Int = 0) {
         self.id = id
         self.start = start
         self.end = end
         self.seconds = seconds
+        self.count = count
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, start, end, seconds, count }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        start = try container.decode(Date.self, forKey: .start)
+        end = try container.decode(Date.self, forKey: .end)
+        seconds = try container.decode(Int.self, forKey: .seconds)
+        count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
     }
 }
 
@@ -22,6 +36,28 @@ struct ActiveState: Codable, Equatable {
     var segmentStart: Date
     var bankedSeconds: Int
     var isRunning: Bool
+    var count: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case seatStart, segmentStart, bankedSeconds, isRunning, count
+    }
+
+    init(seatStart: Date, segmentStart: Date, bankedSeconds: Int, isRunning: Bool, count: Int = 0) {
+        self.seatStart = seatStart
+        self.segmentStart = segmentStart
+        self.bankedSeconds = bankedSeconds
+        self.isRunning = isRunning
+        self.count = count
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        seatStart = try container.decode(Date.self, forKey: .seatStart)
+        segmentStart = try container.decode(Date.self, forKey: .segmentStart)
+        bankedSeconds = try container.decode(Int.self, forKey: .bankedSeconds)
+        isRunning = try container.decode(Bool.self, forKey: .isRunning)
+        count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+    }
 }
 
 struct Snapshot: Codable {
@@ -30,8 +66,12 @@ struct Snapshot: Codable {
     var active: ActiveState?
 }
 
-/// Sessions shorter than this are treated as mis-taps and not recorded.
+/// Sessions shorter than this are treated as mis-taps and not recorded — unless
+/// the seat carries counted 佛号, which is never thrown away.
 let minRecordedSeconds = 10
+
+/// One mala cycle, shown as 圈 in the UI.
+let beadsPerCycle = 108
 
 final class Store {
     let directory: URL
@@ -81,6 +121,7 @@ final class Store {
 struct DayStat: Identifiable {
     let day: Date
     let seconds: Int
+    let count: Int
     let sessions: [Session]
     var id: Date { day }
 }
@@ -95,6 +136,7 @@ enum Stats {
         return grouped.map { day, items in
             DayStat(day: day,
                     seconds: items.reduce(0) { $0 + $1.seconds },
+                    count: items.reduce(0) { $0 + $1.count },
                     sessions: items.sorted { $0.start < $1.start })
         }
         .sorted { $0.day > $1.day }
@@ -102,11 +144,22 @@ enum Stats {
 
     static func seconds(_ sessions: [Session], from: Date, through: Date,
                         calendar: Calendar = .current) -> Int {
+        inRange(sessions, from: from, through: through, calendar: calendar)
+            .reduce(0) { $0 + $1.seconds }
+    }
+
+    static func count(_ sessions: [Session], from: Date, through: Date,
+                      calendar: Calendar = .current) -> Int {
+        inRange(sessions, from: from, through: through, calendar: calendar)
+            .reduce(0) { $0 + $1.count }
+    }
+
+    private static func inRange(_ sessions: [Session], from: Date, through: Date,
+                                calendar: Calendar) -> [Session] {
         sessions.filter {
             calendar.startOfDay(for: $0.start) >= calendar.startOfDay(for: from)
                 && calendar.startOfDay(for: $0.start) <= calendar.startOfDay(for: through)
         }
-        .reduce(0) { $0 + $1.seconds }
     }
 
     /// Consecutive days with at least one recorded session. A day with no practice
@@ -175,6 +228,21 @@ final class TimerModel: ObservableObject {
             + (active != nil ? elapsedSeconds : 0)
     }
 
+    /// 佛号 counted in the current seat.
+    var seatCount: Int { active?.count ?? 0 }
+    var seatCycles: Int { seatCount / beadsPerCycle }
+
+    var todayCount: Int {
+        let now = nowProvider()
+        return Stats.count(sessions, from: now, through: now) + seatCount
+    }
+
+    var totalCount: Int { sessions.reduce(0) { $0 + $1.count } }
+
+    /// Recorded 佛号 plus whatever the current seat has tapped so far.
+    var lifetimeCount: Int { totalCount + seatCount }
+    var lifetimeCycles: Int { lifetimeCount / beadsPerCycle }
+
     var hasSavedData: Bool { store.exists }
 
     var totalSeconds: Int { sessions.reduce(0) { $0 + $1.seconds } }
@@ -216,6 +284,16 @@ final class TimerModel: ObservableObject {
         ensureTicking()
     }
 
+    /// One 南无阿弥陀佛. Begins a seat automatically when idle, so tapping alone is
+    /// enough to start a practice record.
+    func tap() {
+        if active == nil { start() }
+        guard var updated = active else { return }
+        updated.count += 1
+        active = updated
+        persist()
+    }
+
     /// Ends the current seat and writes it into the history. Returns the recorded
     /// session, or nil when the seat was too short to keep.
     @discardableResult
@@ -227,8 +305,9 @@ final class TimerModel: ObservableObject {
         self.active = nil
         stopTicking()
         var recorded: Session?
-        if seconds >= minRecordedSeconds {
-            let session = Session(start: active.seatStart, end: ended, seconds: seconds)
+        if seconds >= minRecordedSeconds || active.count > 0 {
+            let session = Session(start: active.seatStart, end: ended, seconds: seconds,
+                                  count: active.count)
             sessions.append(session)
             recorded = session
         }
