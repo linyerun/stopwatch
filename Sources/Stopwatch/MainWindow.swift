@@ -63,30 +63,39 @@ struct ChantingView: View {
     var body: some View {
         GeometryReader { geometry in
             // The readout lives in the lower half so the Buddha's face and the lotus in
-            // both hands stay whole.
-            VStack(spacing: 10) {
-                Text(TimeFormat.clock(model.elapsedSeconds))
-                    .font(.system(size: 56, weight: .ultraLight, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
+            // both hands stay whole: timer on the left, counting on the right.
+            HStack(alignment: .center, spacing: 40) {
+                VStack(spacing: 6) {
+                    Text(TimeFormat.clock(model.elapsedSeconds))
+                        .font(.system(size: 62, weight: .ultraLight, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
 
-                Text(statusLine)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.72))
-
-                TapButton(size: min(156, geometry.size.height * 0.21), onImage: true)
-                    .padding(.vertical, 6)
-
-                controls
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 28) {
-                    FootStat(label: "今日", value: TimeFormat.compact(model.todaySeconds))
-                    FootStat(label: "今日佛号", value: "\(model.todayCount) 声")
-                    FootStat(label: "连续", value: "\(model.streakDays) 天")
-                    FootStat(label: "累计", value: TimeFormat.compact(model.totalSeconds))
+                    Text("本座")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
                 }
+                .frame(maxWidth: .infinity)
+
+                VStack(spacing: 10) {
+                    Text(statusLine)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.72))
+
+                    TapButton(size: min(150, geometry.size.height * 0.2), onImage: true)
+                        .padding(.vertical, 4)
+
+                    controls
+
+                    HStack(spacing: 24) {
+                        FootStat(label: "今日", value: TimeFormat.compact(model.todaySeconds))
+                        FootStat(label: "今日佛号", value: "\(model.todayCount) 声")
+                        FootStat(label: "连续", value: "\(model.streakDays) 天")
+                        FootStat(label: "累计", value: TimeFormat.compact(model.totalSeconds))
+                    }
+                    .padding(.top, 6)
+                }
+                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.top, geometry.size.height * 0.42)
