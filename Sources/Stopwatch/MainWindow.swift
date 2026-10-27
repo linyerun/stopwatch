@@ -75,7 +75,7 @@ struct ChantingView: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.6))
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(spacing: 10) {
                     Text(statusLine)
@@ -95,11 +95,11 @@ struct ChantingView: View {
                     }
                     .padding(.top, 6)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.top, geometry.size.height * 0.42)
-            .padding(.horizontal, 32)
+            .padding(.top, geometry.size.height * 0.30)
+            .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
         .confirmationDialog("放弃本座？已念的 \(model.seatCount) 声不会保存。",
