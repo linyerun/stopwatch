@@ -64,9 +64,6 @@ struct ActiveState: Codable, Equatable {
 /// the seat carries counted 佛号, which is never thrown away.
 let minRecordedSeconds = 10
 
-/// One mala cycle, shown as 圈 in the UI.
-let beadsPerCycle = 108
-
 /// Where records live; overridable with NIANFO_DATA_DIR for tests and demos.
 enum Store {
     static func applicationDirectory() -> URL {
@@ -200,7 +197,6 @@ final class TimerModel: ObservableObject {
 
     /// 佛号 counted in the current seat.
     var seatCount: Int { active?.count ?? 0 }
-    var seatCycles: Int { seatCount / beadsPerCycle }
 
     var todayCount: Int {
         let now = nowProvider()
@@ -211,7 +207,6 @@ final class TimerModel: ObservableObject {
 
     /// Recorded 佛号 plus whatever the current seat has tapped so far.
     var lifetimeCount: Int { totalCount + seatCount }
-    var lifetimeCycles: Int { lifetimeCount / beadsPerCycle }
 
     var totalSeconds: Int { sessions.reduce(0) { $0 + $1.seconds } }
     var streakDays: Int { Stats.streak(sessions, now: nowProvider()) }

@@ -11,7 +11,6 @@ struct PracticeSummary {
     let streak: Int
     let seats: Int
     let names: Int
-    let cycles: Int
 
     init(sessions: [Session], now: Date = Date(), liveNames: Int = 0) {
         let calendar = Calendar.current
@@ -24,7 +23,6 @@ struct PracticeSummary {
         streak = Stats.streak(sessions, now: now)
         seats = sessions.count
         names = sessions.reduce(0) { $0 + $1.count } + liveNames
-        cycles = names / beadsPerCycle
     }
 }
 
@@ -86,7 +84,7 @@ struct RecordsView: View {
             SummaryCard(title: "本月", value: TimeFormat.compact(values.month))
             SummaryCard(title: "累计", value: TimeFormat.compact(values.total))
             SummaryCard(title: "连续天数", value: "\(values.streak) 天 · \(values.seats) 座")
-            SummaryCard(title: "佛号", value: "\(values.names) 声（\(values.cycles) 圈）")
+            SummaryCard(title: "佛号", value: "\(values.names) 声")
         }
     }
 
@@ -193,11 +191,10 @@ struct ExportCardView: View {
                     .foregroundStyle(.secondary)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
                       alignment: .leading, spacing: 12) {
                 BigStat(label: "累计念佛", value: TimeFormat.compact(summary.total))
                 BigStat(label: "佛号", value: "\(summary.names) 声")
-                BigStat(label: "满 \(beadsPerCycle) 声为一圈", value: "\(summary.cycles) 圈")
                 BigStat(label: "连续", value: "\(summary.streak) 天 · \(summary.seats) 座")
             }
 

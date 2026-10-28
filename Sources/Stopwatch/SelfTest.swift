@@ -199,16 +199,16 @@ enum SelfTest {
         expect(kept?.seconds == 5, "a counted seat keeps its real duration")
         expect(model.sessions.count == 1, "counted taps must survive the mis-tap rule")
 
-        for _ in 0..<beadsPerCycle { model.tap() }
-        expect(model.seatCount == beadsPerCycle, "a full mala should count \(beadsPerCycle) 声")
-        expect(model.seatCycles == 1, "a full mala is one 圈")
-        expect(model.seatCount % beadsPerCycle == 0, "the 圈 counter should reset after 108")
+        for _ in 0..<108 { model.tap() }
+        expect(model.seatCount == 108, "counting to 108 keeps the raw total")
+        model.tap()
+        expect(model.seatCount == 109, "the count continues past 108 instead of resetting")
 
         let reloaded = TimerModel(directory: dir)
         reloaded.nowProvider = { clock }
-        expect(reloaded.seatCount == beadsPerCycle, "taps should persist across a relaunch")
+        expect(reloaded.seatCount == 109, "taps should persist across a relaunch")
         expect(reloaded.totalCount == 3, "only finished seats count toward history")
-        expect(reloaded.todayCount == beadsPerCycle + 3, "today should add taps to history")
+        expect(reloaded.todayCount == 112, "today should add taps to history")
     }
 
     private static func testLegacyRecords(dataDir: URL) {

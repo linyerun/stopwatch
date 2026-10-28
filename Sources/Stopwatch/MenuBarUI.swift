@@ -189,11 +189,11 @@ struct TapButton: View {
                     .overlay(Circle().stroke(onImage ? Color.orange : Color.orange.opacity(0.75),
                                              lineWidth: onImage ? 3 : 2))
                 VStack(spacing: 2) {
-                    Text("\(model.seatCount % beadsPerCycle)")
+                    Text("\(model.seatCount)")
                         .font(.system(size: size * 0.32, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(onImage ? Color.white : Color.primary)
-                    Text(model.seatCycles > 0 ? "第 \(model.seatCycles) 圈" : "一声一念")
+                    Text("一声一念")
                         .font(.system(size: size * 0.11))
                         .foregroundStyle(onImage ? Color.white.opacity(0.75) : Color.secondary)
                 }
@@ -202,7 +202,7 @@ struct TapButton: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .help("点一下＝念一声南无阿弥陀佛（\(beadsPerCycle) 声为一圈）")
+        .help("点一下＝念一声南无阿弥陀佛")
         .keyboardShortcut(.defaultAction)
     }
 }
